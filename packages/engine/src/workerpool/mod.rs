@@ -1,3 +1,4 @@
+//! TODO: Docstring
 pub mod comms;
 pub mod error;
 mod pending;
@@ -38,6 +39,7 @@ use crate::{
     workerpool::comms::{top::WorkerPoolToExpCtlMsg, WorkerPoolToWorkerMsg, WorkerToWorkerPoolMsg},
 };
 
+/// TODO: Docstring
 pub struct WorkerPoolController {
     worker_controllers: Option<Vec<WorkerController>>,
     comms: WorkerPoolCommsWithWorkers,
@@ -137,6 +139,7 @@ impl WorkerPoolController {
         Ok(fut)
     }
 
+    /// TODO: docstring
     pub async fn run(mut self) -> Result<()> {
         log::debug!("Running Worker Pool Controller");
         pin!(let workers = self.run_worker_controllers()?;);
@@ -180,6 +183,7 @@ impl WorkerPoolController {
         }
     }
 
+    /// TODO Docstring
     async fn handle_sim_msg(&mut self, msg: EngineToWorkerPoolMsg) -> Result<()> {
         let sim_id = msg.sim_id;
         match msg.payload {
@@ -207,6 +211,7 @@ impl WorkerPoolController {
         Ok(())
     }
 
+    /// TODO: Docstring
     async fn handle_exp_msg(&mut self, msg: ExperimentToWorkerPoolMsg) -> Result<()> {
         match msg {
             ExperimentToWorkerPoolMsg::NewSimulationRun(payload) => {
@@ -218,6 +223,7 @@ impl WorkerPoolController {
         Ok(())
     }
 
+    /// TODO: Docstring
     async fn handle_worker_msg(
         &mut self,
         worker: WorkerIndex,
@@ -293,6 +299,7 @@ impl WorkerPoolController {
         self.comms.send_all(msg)
     }
 
+    /// TODO: Docstring
     fn new_worker_tasks(
         &self,
         sim_id: SimulationShortId,

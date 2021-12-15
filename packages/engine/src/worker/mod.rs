@@ -1,3 +1,4 @@
+//! TODO: Docstring
 pub mod error;
 mod pending;
 pub mod runner;
@@ -189,6 +190,7 @@ impl WorkerController {
         Ok(())
     }
 
+    /// TODO: docstring
     async fn handle_worker_pool_msg(&mut self, msg: WorkerPoolToWorkerMsg) -> Result<()> {
         match msg.payload {
             WorkerPoolToWorkerMsgPayload::Task(task) => {
@@ -213,6 +215,7 @@ impl WorkerController {
         Ok(())
     }
 
+    /// TODO: docstring
     async fn handle_runner_msg(&mut self, msg: OutboundFromRunnerMsg) -> Result<()> {
         use MessageTarget::*;
         use OutboundFromRunnerMsgPayload::*;
@@ -268,6 +271,7 @@ impl WorkerController {
         Ok(())
     }
 
+    /// TODO: docstring
     async fn terminate_runners(&mut self) -> Result<()> {
         tokio::try_join!(
             self.py
@@ -280,6 +284,7 @@ impl WorkerController {
         Ok(())
     }
 
+    /// TODO: docstring
     async fn finish_task(
         &mut self,
         task_id: TaskId,
@@ -330,6 +335,7 @@ impl WorkerController {
         })
     }
 
+    /// TODO: docstring
     async fn run_task_handler_on_outbound(
         &mut self,
         sim_id: SimulationShortId,
@@ -395,6 +401,7 @@ impl WorkerController {
         Ok(())
     }
 
+    /// TODO: docstring
     async fn handle_cancel_task_confirmation(
         &mut self,
         task_id: TaskId,
@@ -438,6 +445,7 @@ impl WorkerController {
         Ok(())
     }
 
+    /// TODO: docstring
     async fn spawn_task(&mut self, sim_id: SimulationShortId, task: WorkerTask) -> Result<()> {
         use MessageTarget::*;
         let task_id = task.task_id;
