@@ -40,6 +40,7 @@ pub const BUILTIN_FIELDS: [&str; 14] = [
     "hidden",
 ];
 
+/// TODO: docstring, reword below to be a docstring
 // We also have context -- for an Agent, this is the world around it.
 // Context is where we find things like neighbors, properties, and any data not stored in an agent
 // itself. Our agent runner tries hard to only give agents the context they need to execute, nothing
@@ -53,6 +54,7 @@ pub struct Context<'a> {
     pub datasets: &'a DatasetMap,
 }
 
+/// TODO: docstring
 #[derive(Clone, Serialize, Debug, PartialEq)]
 pub struct Agent {
     #[serde(default = "generate_agent_id")]
@@ -93,6 +95,7 @@ pub struct Agent {
     pub custom: HashMap<String, serde_json::Value>,
 }
 
+/// TODO: docstring
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
 pub enum AgentStateField {
     AgentId,
