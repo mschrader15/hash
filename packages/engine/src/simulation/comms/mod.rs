@@ -50,7 +50,7 @@ use crate::{
     workerpool::comms::MainMsgSend,
 };
 
-// TODO: update docstring
+// TODO: DOC
 #[derive(Clone)]
 /// All relevant to communication between the Loop and the Language Runtime(s)
 pub struct Comms {
@@ -89,7 +89,7 @@ impl Comms {
 
 // Datastore synchronization methods
 impl Comms {
-    // TODO: Docstring, explain why and how this would be used. As it is not currently.
+    // TODO: DOC, explain why and how this would be used. As it is not currently.
     pub async fn state_sync(&self, state: &State) -> Result<()> {
         log::trace!("Synchronizing state");
         // Synchronize the state batches
@@ -105,7 +105,7 @@ impl Comms {
         Ok(())
     }
 
-    /// TODO: Docstring
+    /// TODO: DOC
     pub async fn state_snapshot_sync(&self, state: &StateSnapshot) -> Result<()> {
         log::trace!("Synchronizing state snapshot");
         // Synchronize the state snapshot batches
@@ -121,7 +121,7 @@ impl Comms {
         Ok(())
     }
 
-    /// TODO: Docstring
+    /// TODO: DOC
     pub async fn context_batch_sync(
         &self,
         context: &Context,
@@ -158,7 +158,7 @@ impl Comms {
     }
 }
 
-/// TODO: docstring
+/// TODO: DOC
 fn wrap_task<T: Into<Task>>(
     task_id: TaskId,
     package_id: PackageId,
