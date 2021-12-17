@@ -36,7 +36,7 @@ class Runner:
             self.pkgs[pkg_id] = pkg = Package(
                 name=config.name,
                 pkg_type=config.type,
-                owned_fields=config.owned_fields
+                owned_fields=[]  # TODO: Propagate `config.owned_fields` here.
             )
 
             if pkg.start_experiment is not None:
