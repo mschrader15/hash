@@ -59,9 +59,10 @@ pub async fn sim_run<P: SimulationOutputPersistenceRepr>(
     let mut early_stop = false;
     let mut stop_msg = None;
     'sim_main: loop {
-        // `sim.current_step` is -1 if `next` has not been called
-        let next_step_index = steps_taken;
-        if next_step_index >= max_num_steps {
+        // Behaviors expect context.step() to give the current step rather than steps_taken
+        let current_step = steps_taken + 1;
+        log::trace!("Current step: {}", current_step);
+        if current_step >= max_num_steps {
             break;
         }
 
@@ -71,7 +72,7 @@ pub async fn sim_run<P: SimulationOutputPersistenceRepr>(
         }
 
         // Take a step in the simulation
-        let step_result = match engine.next().await {
+        let step_result = match engine.next(current_step).await {
             Ok(step_result) => step_result,
             Err(error) => {
                 log::error!("Got error within the engine step process: {:?}", error);
@@ -120,6 +121,7 @@ pub async fn sim_run<P: SimulationOutputPersistenceRepr>(
             break 'sim_main;
         }
 
+        // TODO: should the SimStatus be current_step here or steps_taken (it is after .next())
         sims_to_exp
             .send(SimStatus::running(config.sim.id, steps_taken as isize))
             .await

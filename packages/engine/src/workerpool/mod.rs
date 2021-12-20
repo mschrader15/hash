@@ -4,10 +4,13 @@ pub mod error;
 mod pending;
 pub mod runs;
 
-use std::sync::Arc;
+use std::{future::Future, pin::Pin, sync::Arc};
 
 pub use error::{Error, Result};
-use futures::future::try_join_all;
+use futures::{
+    future::try_join_all,
+    stream::{FuturesUnordered, StreamExt},
+};
 use rand::prelude::SliceRandom;
 use tokio::{pin, task::JoinHandle};
 
@@ -23,7 +26,7 @@ use self::{
 use crate::{
     config,
     config::{TaskDistributionConfig, Worker, WorkerPoolConfig},
-    datastore::table::task_shared_store::TaskSharedStore,
+    datastore::table::{sync::SyncPayload, task_shared_store::TaskSharedStore},
     proto::SimulationShortId,
     simulation::{
         comms::message::{EngineToWorkerPoolMsg, EngineToWorkerPoolMsgPayload},
@@ -36,7 +39,10 @@ use crate::{
         task::WorkerTask,
         WorkerController,
     },
-    workerpool::comms::{top::WorkerPoolToExpCtlMsg, WorkerPoolToWorkerMsg, WorkerToWorkerPoolMsg},
+    workerpool::comms::{
+        top::WorkerPoolToExpCtlMsg, WorkerPoolToWorkerMsg, WorkerPoolToWorkerMsgPayload,
+        WorkerToWorkerPoolMsg,
+    },
 };
 
 /// TODO: DOC
@@ -113,7 +119,7 @@ impl WorkerPoolController {
     }
 
     async fn register_simulation(&mut self, payload: NewSimulationRun) -> Result<()> {
-        // TODO: simulation may not be registered to all workers
+        // TODO: Only send to workers that simulation run is registered with
         self.send_to_all_workers(WorkerPoolToWorkerMsg::new_simulation_run(payload))
     }
 
@@ -144,11 +150,20 @@ impl WorkerPoolController {
         log::debug!("Running Worker Pool Controller");
         pin!(let workers = self.run_worker_controllers()?;);
         pin!(let terminate_recv = self.terminate_recv.take_recv()?;);
+
+        // `pending_syncs` contains futures that wait for state sync responses
+        // from (the handlers of) WaitableStateSync messages that the worker pool
+        // has sent out.
+        let pending_syncs: FuturesUnordered<Pin<Box<dyn Future<Output = ()> + Send>>> =
+            FuturesUnordered::new();
+        pin!(pending_syncs);
+
         loop {
             tokio::select! {
+                Some(_) = pending_syncs.next() => {}
                 Some(msg) = self.sim_recv.recv() => {
                     log::debug!("Handle simulation message: {:?}", msg);
-                    self.handle_sim_msg(msg).await?;
+                    self.handle_sim_msg(msg, &mut pending_syncs).await?;
                 }
                 Some(msg) = self.exp_recv.recv() => {
                     log::debug!("Handle experiment message: {:?}", msg);
@@ -184,7 +199,11 @@ impl WorkerPoolController {
     }
 
     /// TODO Docstring
-    async fn handle_sim_msg(&mut self, msg: EngineToWorkerPoolMsg) -> Result<()> {
+    async fn handle_sim_msg(
+        &mut self,
+        msg: EngineToWorkerPoolMsg,
+        pending_syncs: &mut FuturesUnordered<Pin<Box<dyn Future<Output = ()> + Send>>>,
+    ) -> Result<()> {
         let sim_id = msg.sim_id;
         match msg.payload {
             EngineToWorkerPoolMsgPayload::Task(task_msg) => {
@@ -204,8 +223,28 @@ impl WorkerPoolController {
                     self.send_to_worker(worker.index(), WorkerPoolToWorkerMsg::task(sim_id, task))
                 })?;
             }
-            EngineToWorkerPoolMsgPayload::Sync(sync_msg) => {
-                self.send_to_all_workers(WorkerPoolToWorkerMsg::sync(sim_id, sync_msg))?
+            EngineToWorkerPoolMsgPayload::Sync(sync) => {
+                let sync = if let SyncPayload::State(sync) = sync {
+                    sync
+                } else {
+                    self.send_to_all_workers(WorkerPoolToWorkerMsg::sync(sim_id, sync))?;
+                    return Ok(());
+                };
+
+                // TODO: Only send to workers that simulation run is registered with
+                let (worker_msgs, worker_completion_receivers) =
+                    sync.create_children(self.comms.num_workers());
+                for (worker_index, msg) in worker_msgs.into_iter().enumerate() {
+                    self.comms.send(worker_index, WorkerPoolToWorkerMsg {
+                        sim_id: Some(sim_id),
+                        payload: WorkerPoolToWorkerMsgPayload::Sync(SyncPayload::State(msg)),
+                    })?;
+                }
+                let fut = async move {
+                    let sync = sync; // Capture `sync` in lambda.
+                    sync.forward_children(worker_completion_receivers).await
+                };
+                pending_syncs.push(Box::pin(fut) as _);
             }
         }
         Ok(())
@@ -254,6 +293,12 @@ impl WorkerPoolController {
                 self.top_send
                     .inner
                     .send((None, WorkerPoolToExpCtlMsg::Warnings(warnings)))?;
+            }
+            WorkerToWorkerPoolMsg::RunnerLogs(logs) => {
+                log::debug!("Received RunnerLogs Message from Worker");
+                self.top_send
+                    .inner
+                    .send((None, WorkerPoolToExpCtlMsg::Logs(logs)))?;
             }
         }
         Ok(())

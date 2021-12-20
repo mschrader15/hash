@@ -35,7 +35,7 @@ use crate::{
         table::{
             pool::{agent::AgentPool, message::MessagePool, BatchPool},
             proxy::StateWriteProxy,
-            sync::{ContextBatchSync, StateSync},
+            sync::{ContextBatchSync, StateSync, WaitableStateSync},
             task_shared_store::{PartialSharedState, SharedState},
         },
     },
@@ -248,10 +248,12 @@ struct RunnerImpl<'m> {
     sims_state: HashMap<SimulationShortId, SimState>,
 }
 
+// we pass in _mv8 for the return values lifetime
 fn sim_id_to_js(_mv8: &MiniV8, sim_run_id: SimulationShortId) -> mv8::Value<'_> {
     mv8::Value::Number(sim_run_id as f64)
 }
 
+// we pass in _mv8 for the return values lifetime
 fn pkg_id_to_js(_mv8: &MiniV8, pkg_id: PackageId) -> mv8::Value<'_> {
     mv8::Value::Number(pkg_id.as_usize() as f64)
 }
@@ -262,6 +264,11 @@ fn idxs_to_js<'m>(mv8: &'m MiniV8, idxs: &[usize]) -> Result<mv8::Value<'m>> {
         a.set(i as u32, mv8::Value::Number(*idx as u32 as f64))?;
     }
     Ok(mv8::Value::Array(a))
+}
+
+// we pass in _mv8 for the return values lifetime
+fn current_step_to_js(_mv8: &MiniV8, current_step: usize) -> mv8::Value<'_> {
+    mv8::Value::Number(current_step as f64)
 }
 
 fn batches_from_shared_store(
@@ -430,6 +437,14 @@ fn get_user_warnings(_mv8: &MiniV8, r: &mv8::Object<'_>) -> Option<Vec<RunnerErr
         }
     }
     None
+}
+
+fn get_print(_mv8: &MiniV8, r: &mv8::Object<'_>) -> Option<Vec<String>> {
+    if let Ok(mv8::Value::String(e)) = r.get("print") {
+        Some(e.to_string().split('\n').map(|s| s.to_string()).collect())
+    } else {
+        None
+    }
 }
 
 fn get_next_task(_mv8: &MiniV8, r: &mv8::Object<'_>) -> Result<(MessageTarget, String)> {
@@ -850,12 +865,28 @@ impl<'m> RunnerImpl<'m> {
         Ok(())
     }
 
+    /// Runs a task on JavaScript with the provided simulation id.
+    ///
+    /// Returns the next task ([`TargetedRunnerTaskMsg`]) and, if present, warnings
+    /// ([`RunnerError`]) and logging statements.
+    ///
+    /// # Errors
+    ///
+    /// May return an error if:
+    ///
+    /// - a value from Javascript could not be parsed,
+    /// - the task errored, or
+    /// - the state could not be flushed to the datastore.
     fn run_task(
         &mut self,
         mv8: &'m MiniV8,
         sim_run_id: SimulationShortId,
         mut msg: RunnerTaskMsg,
-    ) -> Result<(TargetedRunnerTaskMsg, Option<Vec<RunnerError>>)> {
+    ) -> Result<(
+        TargetedRunnerTaskMsg,
+        Option<Vec<RunnerError>>,
+        Option<Vec<String>>,
+    )> {
         log::debug!("Starting state interim sync before running task");
         // TODO: Move JS part of sync into `run_task` function in JS for better performance.
         self.state_interim_sync(mv8, sim_run_id, &msg.shared_store)?;
@@ -912,7 +943,7 @@ impl<'m> RunnerImpl<'m> {
             return Err(error);
         }
         let warnings = get_user_warnings(mv8, &r);
-        // TODO: Send `r.print` (if any) to main loop to display to user.
+        let logs = get_print(mv8, &r);
         let (next_target, next_task_payload) = get_next_task(mv8, &r)?;
 
         let next_inner_task_msg: serde_json::Value = serde_json::from_str(&next_task_payload)?;
@@ -943,24 +974,29 @@ impl<'m> RunnerImpl<'m> {
                 payload: next_task_payload,
             },
         };
-        Ok((next_task_msg, warnings))
+        Ok((next_task_msg, warnings, logs))
     }
 
     fn ctx_batch_sync(
         &mut self,
         mv8: &'m MiniV8,
         sim_run_id: SimulationShortId,
-        ctx_batch: ContextBatchSync,
+        ctx_batch_sync: ContextBatchSync,
     ) -> Result<()> {
-        let start_indices = &ctx_batch.state_group_start_indices;
-        let ctx_batch = &ctx_batch
-            .context_batch
+        let ContextBatchSync {
+            context_batch,
+            current_step,
+            state_group_start_indices,
+        } = ctx_batch_sync;
+
+        let ctx_batch = context_batch
             .try_read()
             .ok_or_else(|| Error::from("Couldn't read context batch"))?;
         let args = mv8::Values::from_vec(vec![
             sim_id_to_js(mv8, sim_run_id),
             batch_to_js(mv8, ctx_batch.memory(), ctx_batch.metaversion())?,
-            idxs_to_js(mv8, start_indices)?,
+            idxs_to_js(mv8, &state_group_start_indices)?,
+            current_step_to_js(mv8, current_step),
         ]);
         let _: mv8::Value<'_> = self
             .embedded
@@ -973,7 +1009,7 @@ impl<'m> RunnerImpl<'m> {
         &mut self,
         mv8: &'m MiniV8,
         sim_run_id: SimulationShortId,
-        msg: StateSync,
+        msg: WaitableStateSync,
     ) -> Result<()> {
         // TODO: Technically this might violate Rust's aliasing rules, because
         //       at this point, the state batches are immutable, but we pass
@@ -1002,6 +1038,15 @@ impl<'m> RunnerImpl<'m> {
             .ok_or(Error::MissingSimulationRun(sim_run_id))?;
         state.agent_pool = msg.agent_pool;
         state.msg_pool = msg.message_pool;
+
+        log::trace!("Sending state sync completion");
+        msg.completion_sender.send(Ok(())).map_err(|e| {
+            Error::from(format!(
+                "Couldn't send state sync completion to worker: {:?}",
+                e
+            ))
+        })?;
+        log::trace!("Sent state sync completion");
         Ok(())
     }
 
@@ -1091,7 +1136,7 @@ impl<'m> RunnerImpl<'m> {
             }
             InboundToRunnerMsgPayload::TaskMsg(msg) => {
                 let sim_id = sim_id.ok_or(Error::SimulationIdRequired("run task"))?;
-                let (next_task_msg, warnings) = self.run_task(mv8, sim_id, msg)?;
+                let (next_task_msg, warnings, logs) = self.run_task(mv8, sim_id, msg)?;
                 // TODO: `send` fn to reduce code duplication.
                 outbound_sender.send(OutboundFromRunnerMsg {
                     source: Language::JavaScript,
@@ -1103,6 +1148,13 @@ impl<'m> RunnerImpl<'m> {
                         source: Language::JavaScript,
                         sim_id,
                         payload: OutboundFromRunnerMsgPayload::RunnerWarnings(warnings),
+                    })?;
+                }
+                if let Some(logs) = logs {
+                    outbound_sender.send(OutboundFromRunnerMsg {
+                        source: Language::JavaScript,
+                        sim_id,
+                        payload: OutboundFromRunnerMsgPayload::RunnerLogs(logs),
                     })?;
                 }
             }
