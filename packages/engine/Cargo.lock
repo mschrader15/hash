@@ -704,6 +704,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "error"
+version = "0.0.0"
+
+[[package]]
 name = "event-listener"
 version = "2.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

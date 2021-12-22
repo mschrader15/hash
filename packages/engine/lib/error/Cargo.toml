@@ -1,0 +1,14 @@
+[package]
+name = "error"
+version = "0.0.0"
+edition = "2021"
+
+[features]
+backtrace = ["std"]
+std = ["alloc"]
+alloc = []
+
+[[example]]
+name = "main"
+required-features = ["backtrace"]
+
