@@ -1,9 +1,15 @@
 #![feature(backtrace)]
 
 use core::{fmt, panic::Location};
-use std::backtrace::Backtrace;
+use std::{
+    backtrace::{Backtrace, BacktraceStatus},
+    thread,
+};
 
-use error::{error::Error, provider::Request};
+use error::{
+    provider::{tags, Requisition, TypeTag},
+    Error,
+};
 
 #[derive(Debug)]
 pub struct ExampleError {
@@ -11,12 +17,18 @@ pub struct ExampleError {
     backtrace: Option<Backtrace>,
 }
 
+struct LocationTag;
+
+impl TypeTag<'_> for LocationTag {
+    type Type = Vec<&'static Location<'static>>;
+}
+
 impl Default for ExampleError {
     #[track_caller]
     fn default() -> Self {
         Self {
             frames: vec![Location::caller()],
-            backtrace: Some(Backtrace::force_capture()),
+            backtrace: Some(Backtrace::capture()),
             // backtrace: None,
         }
     }
@@ -29,10 +41,12 @@ impl fmt::Display for ExampleError {
 }
 
 impl Error for ExampleError {
-    fn provide_context<'a>(&'a self, request: &mut Request<'a>) {
-        request
-            .provide_ref::<[&'static Location<'static>]>(&self.frames)
-            .provide_ref::<Option<Backtrace>>(&self.backtrace);
+    fn provide<'ctx>(&'ctx self, mut req: Requisition<'ctx, '_>) {
+        req.provide_ref(&*self.frames);
+        req.provide_value(Backtrace::capture);
+        if let Some(ref backtrace) = self.backtrace {
+            req.provide_ref(backtrace);
+        }
     }
 }
 
@@ -47,7 +61,7 @@ impl From<ExampleError> for ExampleWrappingError {
     fn from(source: ExampleError) -> Self {
         Self {
             frames: vec![Location::caller()],
-            backtrace: Some(Backtrace::force_capture()),
+            backtrace: Some(Backtrace::capture()),
             source,
         }
     }
@@ -60,19 +74,21 @@ impl fmt::Display for ExampleWrappingError {
 }
 
 impl Error for ExampleWrappingError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(&self.source)
-    }
-
-    fn provide_context<'a>(&'a self, request: &mut Request<'a>) {
-        request
-            .provide_ref::<[&'static Location<'static>]>(&self.frames)
-            .provide_ref::<Option<Backtrace>>(&self.backtrace);
+    fn provide<'a>(&'a self, mut req: Requisition<'a, '_>) {
+        req.provide_value::<u64, _>(|| 10)
+            .provide_value::<u64, _>(|| 11)
+            .provide_value::<u64, _>(|| 12)
+            .provide_ref::<dyn Error>(&self.source)
+            .provide_ref::<[&'static Location<'static>]>(&self.frames);
+        if let Some(backtrace) = self.backtrace.as_ref() {
+            req.provide_ref(backtrace);
+        }
     }
 }
 
 fn main() {
-    let e = four().unwrap_err();
+    let t = thread::spawn(move || four().unwrap_err());
+    let e = t.join().unwrap();
     report(&e);
 }
 
@@ -93,24 +109,34 @@ fn four() -> Result<(), ExampleWrappingError> {
 }
 
 pub fn report(error: &(dyn Error + 'static)) {
-    let locations = error
+    println!("\nReturn Trace:");
+    for (idx, location) in error
         .chain()
-        .filter_map(|e| e.context_ref::<[&'static Location<'static>]>())
-        .flatten();
-
-    println!("\nFull Return Trace:");
-    for (i, loc) in locations.enumerate() {
-        println!("    {}: {}", i, loc);
+        .filter_map(|err| err.request_ref::<[&'static Location<'static>]>())
+        .flatten()
+        .enumerate()
+    {
+        println!("   {idx}:");
+        println!("             at {location}");
     }
 
-    let backtraces = error
-        .chain()
-        .filter_map(|e| e.context_ref::<Option<Backtrace>>())
-        .flatten()
-        .last();
+    // use core::any::Any;
+    // dbg!(error.is::<ExampleError>());
 
-    if let Some(backtrace) = backtraces {
+    if let Some(backtrace) = error.chain().find_map(|err| err.request_ref::<Backtrace>()) {
         println!("\nBacktrace:");
         println!("{backtrace}");
+    }
+
+    if let Some(backtrace) = error
+        .chain()
+        .find_map(|err| err.request_value::<Backtrace>())
+    {
+        println!("\nBacktrace:");
+        println!("{backtrace}");
+    }
+
+    for value in error.chain().filter_map(|err| err.request_value::<u64>()) {
+        println!("values: {value}");
     }
 }

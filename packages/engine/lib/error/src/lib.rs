@@ -1,16 +1,16 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "backtrace", feature(backtrace))]
 #![cfg_attr(doc, feature(doc_cfg))]
+#![feature(generator_trait, generators)]
 
 extern crate alloc;
 
-pub mod error;
 pub mod provider;
-pub mod tag;
 
-mod private;
+mod error;
+mod internal;
 
-pub use self::error::Error;
+pub use self::error::*;
 
 #[cfg(not(feature = "std"))]
 trait StdError: core::fmt::Debug + core::fmt::Display {
