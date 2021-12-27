@@ -26,6 +26,7 @@ use crate::provider::{self, tags, Provider, Requisition};
 /// from a lower-level module, it can allow accessing that error via [`Error::source()`]. This makes
 /// it possible for the high-level module to provide its own errors while also revealing some of the
 /// implementation for debugging via `source` chains.
+//   TODO: use std::error::Error when provider API is finalized
 pub trait Error: Debug + Display + Provider {
     /// The lower-level source of this error, if any.
     ///

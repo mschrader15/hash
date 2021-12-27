@@ -1,7 +1,11 @@
-//! Type tags are used to identify a type using a separate value. This module includes type tags
-//! for some very common types.
+//! Type tags are used to identify a type using a separate value. This module includes type tags for
+//! some very common types.
+//!
+//! Many users of the provider APIs will not need to use type tags at all. But if you want to use
+//! them with more complex types (typically those including lifetime parameters), you will
+//! need to write your own tags.
 
-use core::{fmt, marker::PhantomData};
+use core::marker::PhantomData;
 
 use super::TypeTag;
 
@@ -26,28 +30,21 @@ impl<'p, T: ?Sized + 'static> TypeTag<'p> for RefMut<T> {
 pub struct Value<T: 'static>(PhantomData<T>);
 
 impl<'p, T: 'static> TypeTag<'p> for Value<T> {
-    type Type = &'p mut T;
+    type Type = T;
 }
 
 /// Tag combinator to wrap the given tag's value in an `Option<T>`
 #[derive(Debug)]
 pub struct OptionTag<I>(PhantomData<I>);
 
-impl<'p, I> TypeTag<'p> for OptionTag<I>
-where
-    I: TypeTag<'p>,
-{
+impl<'p, I: TypeTag<'p>> TypeTag<'p> for OptionTag<I> {
     type Type = Option<I::Type>;
 }
 
 /// Tag combinator to wrap the given tag's value in an `Result<T, E>`
 #[derive(Debug)]
-pub struct ResultTag<I, E>(PhantomData<(I, E)>);
+pub struct ResultTag<I, E>(PhantomData<I>, PhantomData<E>);
 
-impl<'p, I, E> TypeTag<'p> for ResultTag<I, E>
-where
-    I: TypeTag<'p>,
-    E: TypeTag<'p>,
-{
+impl<'p, I: TypeTag<'p>, E: TypeTag<'p>> TypeTag<'p> for ResultTag<I, E> {
     type Type = Result<I::Type, E::Type>;
 }

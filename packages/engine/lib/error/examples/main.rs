@@ -1,13 +1,10 @@
-#![feature(backtrace)]
+#![feature(backtrace, error_iter)]
 
 use core::{fmt, panic::Location};
-use std::{
-    backtrace::{Backtrace, BacktraceStatus},
-    thread,
-};
+use std::{backtrace::Backtrace, thread};
 
 use error::{
-    provider::{tags, Requisition, TypeTag},
+    provider::{Requisition, TypeTag},
     Error,
 };
 
@@ -132,7 +129,7 @@ pub fn report(error: &(dyn Error + 'static)) {
         .chain()
         .find_map(|err| err.request_value::<Backtrace>())
     {
-        println!("\nBacktrace:");
+        println!("\nReturn trace:");
         println!("{backtrace}");
     }
 

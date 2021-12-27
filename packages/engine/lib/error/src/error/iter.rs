@@ -1,7 +1,4 @@
-use core::{iter::FusedIterator, marker::PhantomData};
-
 use super::Error;
-use crate::provider::{tags, Provider};
 
 /// An iterator over an [`Error`] and its sources.
 ///
