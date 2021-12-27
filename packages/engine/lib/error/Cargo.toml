@@ -5,8 +5,7 @@ edition = "2021"
 
 [features]
 backtrace = ["std"]
-std = ["alloc"]
-alloc = []
+std = []
 
 [[example]]
 name = "main"

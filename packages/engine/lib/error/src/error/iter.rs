@@ -1,28 +1,54 @@
-use super::Error;
+use alloc::boxed::Box;
+use core::{iter::FusedIterator, marker::PhantomData};
 
-/// An iterator over an [`Error`] and its sources.
-///
-/// If you want to omit the initial error and only process its sources, use `skip(1)`.
-#[derive(Clone, Debug)]
-pub struct Chain<'e> {
-    current: Option<&'e (dyn Error + 'static)>,
+use super::Frame;
+use crate::{provider::TypeTag, Report};
+
+pub struct Chain<'r> {
+    current: Option<&'r Frame>,
 }
 
-impl<'e> Chain<'e> {
-    pub(super) fn new(error: &'e (dyn Error + 'static)) -> Self {
+impl<'r> Chain<'r> {
+    pub(super) const fn new(report: &'r Report) -> Self {
         Self {
-            current: Some(error),
+            current: Some(&report.inner.error),
         }
     }
 }
 
-impl<'e> Iterator for Chain<'e> {
-    type Item = &'e (dyn Error + 'static);
+impl<'r> Iterator for Chain<'r> {
+    type Item = &'r Frame;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.current.take().map(|current| {
-            self.current = current.source();
+            self.current = current.source.as_ref().map(Box::as_ref);
             current
         })
     }
 }
+
+impl<'r> FusedIterator for Chain<'r> {}
+
+pub struct Request<'r, I: TypeTag<'r>> {
+    chain: Chain<'r>,
+    _marker: PhantomData<I>,
+}
+
+impl<'r, I: TypeTag<'r>> Request<'r, I> {
+    pub(super) fn new(report: &'r Report) -> Self {
+        Self {
+            chain: report.chain(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<'r, I: TypeTag<'r>> Iterator for Request<'r, I> {
+    type Item = I::Type;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.chain.by_ref().find_map(Frame::request::<I>)
+    }
+}
+
+impl<'r, I: TypeTag<'r>> FusedIterator for Request<'r, I> {}

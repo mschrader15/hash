@@ -1,1 +1,1 @@
-pub struct Private;
+pub trait Sealed {}

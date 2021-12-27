@@ -1,7 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "backtrace", feature(backtrace))]
 #![cfg_attr(doc, feature(doc_cfg))]
-#![feature(generator_trait, generators)]
 
 extern crate alloc;
 

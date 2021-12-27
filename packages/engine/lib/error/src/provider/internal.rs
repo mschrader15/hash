@@ -28,35 +28,28 @@ where
     }
 }
 
-macro_rules! tagged_methods {
-    ($($T: ty),*) => {$(
-        impl<'p> $T {
-            /// Returns `true` if the dynamic type is tagged with `I`.
-            #[inline]
-            pub(super) fn is<I>(&self) -> bool
-            where
-                I: TypeTag<'p>,
-            {
-                self.tag_id() == TypeId::of::<I>()
-            }
+impl<'p> dyn Tagged<'p> {
+    /// Returns `true` if the dynamic type is tagged with `I`.
+    #[inline]
+    pub(super) fn is<I>(&self) -> bool
+    where
+        I: TypeTag<'p>,
+    {
+        self.tag_id() == TypeId::of::<I>()
+    }
 
-            /// Returns some reference to the dynamic value if it is tagged with `I`, or `None` if
-            /// it isn't.
-            #[inline]
-            pub(super) fn downcast_mut<I>(&mut self) -> Option<&mut TagValue<'p, I>>
-            where
-                I: TypeTag<'p>,
-            {
-                if self.is::<I>() {
-                    // SAFETY: Just checked whether we're pointing to a
-                    // `TagValue<'p, I>`.
-                    unsafe { Some(&mut *(self as *mut Self as *mut TagValue<'p, I>)) }
-                } else {
-                    None
-                }
-            }
+    /// Returns some reference to the dynamic value if it is tagged with `I`, or `None` if it isn't.
+    #[inline]
+    pub(super) fn downcast_mut<I>(&mut self) -> Option<&mut TagValue<'p, I>>
+    where
+        I: TypeTag<'p>,
+    {
+        if self.is::<I>() {
+            // SAFETY: Just checked whether we're pointing to a
+            // `TagValue<'p, I>`.
+            unsafe { Some(&mut *(self as *mut Self).cast::<TagValue<'p, I>>()) }
+        } else {
+            None
         }
-    )*};
+    }
 }
-
-tagged_methods!(dyn Tagged<'p> /* , dyn Tagged<'p> + Send */);

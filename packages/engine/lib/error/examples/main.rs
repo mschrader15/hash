@@ -1,35 +1,13 @@
-#![feature(backtrace, error_iter)]
-
-use core::{fmt, panic::Location};
-use std::{backtrace::Backtrace, thread};
+use std::{error::Error, fmt};
 
 use error::{
-    provider::{Requisition, TypeTag},
-    Error,
+    self,
+    provider::{Provider, Requisition},
+    Report, Result, WrapReport,
 };
 
 #[derive(Debug)]
-pub struct ExampleError {
-    frames: Vec<&'static Location<'static>>,
-    backtrace: Option<Backtrace>,
-}
-
-struct LocationTag;
-
-impl TypeTag<'_> for LocationTag {
-    type Type = Vec<&'static Location<'static>>;
-}
-
-impl Default for ExampleError {
-    #[track_caller]
-    fn default() -> Self {
-        Self {
-            frames: vec![Location::caller()],
-            backtrace: Some(Backtrace::capture()),
-            // backtrace: None,
-        }
-    }
-}
+pub struct ExampleError;
 
 impl fmt::Display for ExampleError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -37,32 +15,10 @@ impl fmt::Display for ExampleError {
     }
 }
 
-impl Error for ExampleError {
-    fn provide<'ctx>(&'ctx self, mut req: Requisition<'ctx, '_>) {
-        req.provide_ref(&*self.frames);
-        req.provide_value(Backtrace::capture);
-        if let Some(ref backtrace) = self.backtrace {
-            req.provide_ref(backtrace);
-        }
-    }
-}
+impl Error for ExampleError {}
 
 #[derive(Debug)]
-pub struct ExampleWrappingError {
-    frames: Vec<&'static Location<'static>>,
-    source: ExampleError,
-    backtrace: Option<Backtrace>,
-}
-
-impl From<ExampleError> for ExampleWrappingError {
-    fn from(source: ExampleError) -> Self {
-        Self {
-            frames: vec![Location::caller()],
-            backtrace: Some(Backtrace::capture()),
-            source,
-        }
-    }
-}
+pub struct ExampleWrappingError;
 
 impl fmt::Display for ExampleWrappingError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -70,70 +26,46 @@ impl fmt::Display for ExampleWrappingError {
     }
 }
 
-impl Error for ExampleWrappingError {
+impl Provider for ExampleWrappingError {
     fn provide<'a>(&'a self, mut req: Requisition<'a, '_>) {
         req.provide_value::<u64, _>(|| 10)
             .provide_value::<u64, _>(|| 11)
-            .provide_value::<u64, _>(|| 12)
-            .provide_ref::<dyn Error>(&self.source)
-            .provide_ref::<[&'static Location<'static>]>(&self.frames);
-        if let Some(backtrace) = self.backtrace.as_ref() {
-            req.provide_ref(backtrace);
-        }
+            .provide_value::<u64, _>(|| 12);
     }
 }
 
 fn main() {
-    let t = thread::spawn(move || four().unwrap_err());
-    let e = t.join().unwrap();
+    let e = four().unwrap_err();
     report(&e);
 }
 
-fn one() -> Result<(), ExampleError> {
-    Err(ExampleError::default())
+fn one() -> Result<()> {
+    Err(Report::from_error(ExampleError).context("one"))
 }
 
-fn two() -> Result<(), ExampleError> {
-    Ok(one()?)
+fn two() -> Result<()> {
+    one().context("two")
 }
 
-fn three() -> Result<(), ExampleWrappingError> {
-    Ok(two()?)
+fn three() -> Result<()> {
+    two().provide(ExampleWrappingError)
 }
 
-fn four() -> Result<(), ExampleWrappingError> {
-    Ok(three()?)
+fn four() -> Result<()> {
+    three().context_with(|| format!("This is #{}", 4))
 }
 
-pub fn report(error: &(dyn Error + 'static)) {
-    println!("\nReturn Trace:");
-    for (idx, location) in error
-        .chain()
-        .filter_map(|err| err.request_ref::<[&'static Location<'static>]>())
-        .flatten()
-        .enumerate()
-    {
-        println!("   {idx}:");
-        println!("             at {location}");
+pub fn report(report: &Report) {
+    println!("\nReturn trace:");
+    for (idx, frame) in report.chain().enumerate() {
+        println!("   {idx}: {frame}");
+        println!("             at {}", frame.location());
     }
 
-    // use core::any::Any;
-    // dbg!(error.is::<ExampleError>());
+    println!("\nBacktrace:");
+    println!("{}", report.backtrace());
 
-    if let Some(backtrace) = error.chain().find_map(|err| err.request_ref::<Backtrace>()) {
-        println!("\nBacktrace:");
-        println!("{backtrace}");
-    }
-
-    if let Some(backtrace) = error
-        .chain()
-        .find_map(|err| err.request_value::<Backtrace>())
-    {
-        println!("\nReturn trace:");
-        println!("{backtrace}");
-    }
-
-    for value in error.chain().filter_map(|err| err.request_value::<u64>()) {
+    for value in report.request_value::<u64>() {
         println!("values: {value}");
     }
 }
