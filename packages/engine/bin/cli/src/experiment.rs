@@ -1,6 +1,6 @@
 use std::{iter::FromIterator, path::PathBuf, time::Duration};
 
-use anyhow::{bail, format_err, Context, Result};
+use error::{bail, format_err, Result, WrapReport};
 use hash_engine::{
     experiment::controller::config::{OutputPersistenceConfig, OUTPUT_PERSISTENCE_KEY},
     output::local::config::LocalPersistenceConfig,
@@ -22,15 +22,16 @@ lazy_static::lazy_static! {
 /// requests over the websocket will be handled and sent to the appropriate worker (if available).
 /// The simulations will run to completion and the connection will finish once the last run is done,
 /// or if there is an error.
+#[tracing::instrument(skip(handler))]
 pub async fn run_experiment(args: Args, handler: Handler) -> Result<()> {
     let project = &args.project;
     let absolute_project_path = PathBuf::from(project)
         .canonicalize()
-        .with_context(|| format!("Could not canonicalize project path: {project:?}"))?;
+        .wrap_err_with(|| format!("Could not canonicalize project path: {project:?}"))?;
     let project_name = args.project_name.clone().unwrap_or(
         absolute_project_path
             .file_name()
-            .with_context(|| format!("Project path didn't point to a directory: {absolute_project_path:?}"))? // Shouldn't be able to fail as we canonicalize above
+            .wrap_err_with(|| format!("Project path didn't point to a directory: {absolute_project_path:?}"))? // Shouldn't be able to fail as we canonicalize above
             .to_string_lossy()
             .to_string(),
     );
@@ -52,6 +53,7 @@ fn create_engine_command(
     )?))
 }
 
+#[tracing::instrument(skip(args, handler))]
 async fn run_experiment_with_manifest(
     args: Args,
     experiment_run: proto::ExperimentRun,
@@ -62,12 +64,12 @@ async fn run_experiment_with_manifest(
     let mut engine_handle = handler
         .register_experiment(&experiment_id)
         .await
-        .with_context(|| format!("Could not register experiment: {experiment_id}"))?;
+        .wrap_err_with(|| format!("Could not register experiment: {experiment_id}"))?;
 
     // Create and start the experiment run
     let cmd = create_engine_command(&args, &experiment_id, handler.url())
-        .context("Could not build engine command")?;
-    let mut engine_process = cmd.run().await.context("Could not run experiment")?;
+        .wrap_err("Could not build engine command")?;
+    let mut engine_process = cmd.run().await.wrap_err("Could not run experiment")?;
 
     // Wait to receive a message that the experiment has started before sending the init message.
     let msg = timeout(*ENGINE_START_TIMEOUT, engine_handle.recv())
@@ -86,7 +88,7 @@ async fn run_experiment_with_manifest(
             engine_process
                 .exit_and_cleanup()
                 .await
-                .context("Failed to cleanup after failed start")?;
+                .wrap_err("Failed to cleanup after failed start")?;
             bail!(e);
         }
     };
@@ -110,7 +112,7 @@ async fn run_experiment_with_manifest(
     engine_process
         .send(&proto::EngineMsg::Init(init_message))
         .await
-        .context("Could not send `Init` message")?;
+        .wrap_err("Could not send `Init` message")?;
     debug!("Sent init message to {experiment_id}");
 
     loop {
@@ -174,6 +176,6 @@ async fn run_experiment_with_manifest(
     engine_process
         .exit_and_cleanup()
         .await
-        .context("Could not cleanup after finish")?;
+        .wrap_err("Could not cleanup after finish")?;
     Ok(())
 }

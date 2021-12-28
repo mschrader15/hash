@@ -3,7 +3,7 @@
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
-extern crate log;
+extern crate tracing;
 extern crate pretty_env_logger;
 
 pub mod experiment;
@@ -11,7 +11,7 @@ pub mod exsrv;
 pub mod manifest;
 pub mod process;
 
-use anyhow::Result;
+use error::Result;
 use experiment::run_experiment;
 use structopt::StructOpt;
 
@@ -76,7 +76,7 @@ pub struct SimpleExperimentArgs {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    pretty_env_logger::init();
+    let _guards = hash_engine::init_logger("logs/cli.txt", "logs/cli.json");
     let args = Args::from_args();
 
     let nng_listen_url = {

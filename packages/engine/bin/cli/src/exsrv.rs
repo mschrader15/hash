@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 
-use anyhow::{bail, format_err, Context, Result};
+use error::{bail, format_err, Result, WrapReport};
 use hash_engine::{nano, proto};
 use tokio::sync::{mpsc, oneshot};
 
@@ -80,7 +80,9 @@ impl Handler {
             .send((ctrl, result_tx))
             .await
             .map_err(|_| format_err!("Could not send control message to server"))?;
-        result_rx.await.context("Failed to receive response from")?
+        result_rx
+            .await
+            .wrap_err("Failed to receive response from")?
     }
 
     /// Register a new experiment execution with the server, returning a Handle from which messages
@@ -185,7 +187,7 @@ impl Server {
                     match self.handle_ctrl_msg(ctrl, result_tx) {
                         Ok(true) => { break; }
                         Ok(false) => {}
-                        Err(e) => { log_error(e); }
+                        Err(e) => { let _ = log_error(e); }
                     }
                 },
                 r = socket.recv::<proto::OrchestratorMsg>() => match r {

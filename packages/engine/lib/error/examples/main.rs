@@ -1,8 +1,9 @@
 use std::{error::Error, fmt};
 
 use error::{
-    self,
+    self, bail, ensure, format_err,
     provider::{Provider, Requisition},
+    tags::ErrorMessage,
     Report, Result, WrapReport,
 };
 
@@ -30,13 +31,23 @@ impl Provider for ExampleWrappingError {
     fn provide<'a>(&'a self, mut req: Requisition<'a, '_>) {
         req.provide_value::<u64, _>(|| 10)
             .provide_value::<u64, _>(|| 11)
-            .provide_value::<u64, _>(|| 12);
+            .provide_value::<u64, _>(|| 12)
+            .provide_with::<ErrorMessage, _>(|| self.to_string().into_boxed_str());
     }
 }
 
-fn main() {
-    let e = four().unwrap_err();
-    report(&e);
+fn main() -> Result<()> {
+    let err = four().unwrap_err();
+    ensure!(2 == 3, "Assertion failed");
+    println!("Display:");
+    println!("{err}");
+    println!("\nDisplay alternate:");
+    println!("{err:#}");
+    println!("\nDebug:");
+    println!("{err:?}");
+    println!("\nDebug alternate:");
+    println!("{err:#?}");
+    Ok(())
 }
 
 fn one() -> Result<()> {
@@ -44,7 +55,7 @@ fn one() -> Result<()> {
 }
 
 fn two() -> Result<()> {
-    one().context("two")
+    one().wrap_err("two")
 }
 
 fn three() -> Result<()> {
@@ -52,20 +63,5 @@ fn three() -> Result<()> {
 }
 
 fn four() -> Result<()> {
-    three().context_with(|| format!("This is #{}", 4))
-}
-
-pub fn report(report: &Report) {
-    println!("\nReturn trace:");
-    for (idx, frame) in report.chain().enumerate() {
-        println!("   {idx}: {frame}");
-        println!("             at {}", frame.location());
-    }
-
-    println!("\nBacktrace:");
-    println!("{}", report.backtrace());
-
-    for value in report.request_value::<u64>() {
-        println!("values: {value}");
-    }
+    three().wrap_err_with(|| format!("This is #{} from line {}", 4, line!()))
 }

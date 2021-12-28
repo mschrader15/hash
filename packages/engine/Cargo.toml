@@ -26,10 +26,8 @@ glob = "0.3.0"
 http-types = "2.6.0"
 kdtree = "0.6.0"
 lazy_static = "1.4.0"
-log = "0.4.11"
 num_cpus = "1.13.0"
 parking_lot = "0.11.1"
-pretty_env_logger = "0.4.0"
 rand = "0.8.3"
 rayon = "1.4.1"
 regex = "1.5.4"
@@ -41,6 +39,10 @@ strum_macros = "0.19.4"
 surf = "2.0.0"
 thiserror = "1.0.21"
 tokio = { version = "1.5.0", features = ["macros", "rt-multi-thread", "sync", "process", "io-util", "net", "rt", "fs", "time"] }
+tracing-subscriber = { version = "0.3.3", features = ["std", "fmt", "env-filter", "json"] }
+tracing-error = "0.2.0"
+tracing-appender = "0.2.0"
+log = { package = "tracing", version = "0.1.29" }
 uuid = { version = "0.8.1", features = ["v4", "serde"] }
 
 # The nng compilation functionality of nng-sys doesn't compile on Arch-based Mac's so it's necessary to
